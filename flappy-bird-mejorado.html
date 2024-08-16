@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird Mejorado - Personalizado</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            display: block;
+        }
+        #nameInput {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px;
+            font-size: 18px;
+            text-align: center;
+        }
+        #difficultySelect {
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px;
+            font-size: 18px;
+        }
+        #startButton {
+            position: absolute;
+            top: 70%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <input type="text" id="nameInput" placeholder="Ingresa tu nombre" style="display: none;">
+    <select id="difficultySelect" style="display: none;">
+        <option value="easy">Fácil</option>
+        <option value="medium">Medio</option>
+        <option value="hard">Difícil</option>
+    </select>
+    <button id="startButton" style="display: none;">Comenzar juego</button>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const nameInput = document.getElementById('nameInput');
+        const difficultySelect = document.getElementById('difficultySelect');
+        const startButton = document.getElementById('startButton');
+
+        // Ajustar el tamaño del canvas al tamaño de la ventana
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Configuración del juego
+        let gravity, flapStrength, pipeWidth, pipeGap, birdSize, pipeSpeed;
+        let gameState = 'menu'; // 'menu', 'playing', 'gameOver'
+        let bird, pipes, score, backgroundLayers, playerName, startTime, elapsedTime;
+
+        function setDifficulty(difficulty) {
+            switch(difficulty) {
+                case 'easy':
+                    gravity = 0.4;
+                    flapStrength = -7;
+                    pipeSpeed = 2;
+                    break;
+                case 'medium':
+                    gravity = 0.5;
+                    flapStrength = -8;
+                    pipeSpeed = 3;
+                    break;
+                case 'hard':
+                    gravity = 0.6;
+                    flapStrength = -9;
+                    pipeSpeed = 4;
+                    break;
+            }
+        }
+
+        function initGame() {
+            pipeWidth = canvas.width * 0.1;
+            pipeGap = canvas.height * 0.35;
+            birdSize = canvas.width * 0.05;
+
+            bird = {
+                x: canvas.width * 0.2,
+                y: canvas.height / 2,
+                velocity: 0,
+                radius: birdSize / 2
+            };
+
+            pipes = [];
+            score = 0;
+            startTime = Date.now();
+
+            // Crear capas de fondo con parallax
+            backgroundLayers = [
+                {img: createCloudLayer(), speed: 0.5},
+                {img: createCloudLayer(), speed: 1},
+                {img: createCloudLayer(), speed: 1.5}
+            ];
+        }
+
+        function createCloudLayer() {
+            const layerCanvas = document.createElement('canvas');
+            layerCanvas.width = canvas.width;
+            layerCanvas.height = canvas.height;
+            const layerCtx = layerCanvas.getContext('2d');
+
+            layerCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            for (let i = 0; i < 10; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const radius = Math.random() * 50 + 20;
+                layerCtx.beginPath();
+                layerCtx.arc(x, y, radius, 0, Math.PI * 2);
+                layerCtx.fill();
+            }
+
+            return layerCanvas;
+        }
+
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            backgroundLayers.forEach(layer => {
+                ctx.drawImage(layer.img, layer.x, 0);
+                ctx.drawImage(layer.img, layer.x + canvas.width, 0);
+                layer.x -= layer.speed;
+                if (layer.x <= -canvas.width) {
+                    layer.x = 0;
+                }
+            });
+        }
+
+        function drawBird() {
+            ctx.save();
+            ctx.translate(bird.x, bird.y);
+            ctx.rotate(bird.velocity * 0.04);
+
+            // Cuerpo
+            ctx.beginPath();
+            ctx.arc(0, 0, bird.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFD700';
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Ojo
+            ctx.beginPath();
+            ctx.arc(bird.radius * 0.3, -bird.radius * 0.2, bird.radius * 0.15, 0, Math.PI * 2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+
+            // Ala
+            ctx.beginPath();
+            ctx.ellipse(-bird.radius * 0.5, bird.radius * 0.2, bird.radius * 0.7, bird.radius * 0.4, Math.PI / 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFA500';
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawPipes() {
+            pipes.forEach(pipe => {
+                ctx.fillStyle = '#00A86B';
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+                ctx.fillRect(pipe.x, pipe.bottom, pipeWidth, canvas.height - pipe.bottom);
+
+                // Decoración de los tubos
+                ctx.fillStyle = '#008C59';
+                ctx.fillRect(pipe.x, pipe.top - 20, pipeWidth, 20);
+                ctx.fillRect(pipe.x, pipe.bottom, pipeWidth, 20);
+            });
+        }
+
+        function drawScore() {
+            ctx.fillStyle = '#FFF';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 5;
+            ctx.font = `bold ${canvas.width * 0.05}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.strokeText(score, canvas.width / 2, canvas.height * 0.1);
+            ctx.fillText(score, canvas.width / 2, canvas.height * 0.1);
+
+            // Mostrar nombre y tiempo
+            ctx.font = `${canvas.width * 0.03}px Arial`;
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#000';
+            ctx.fillText(`${playerName}: ${formatTime(elapsedTime)}`, 20, 40);
+        }
+
+        function formatTime(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+        }
+
+        function updateGame() {
+            if (gameState !== 'playing') return;
+
+            elapsedTime = Date.now() - startTime;
+
+            bird.velocity += gravity;
+            bird.y += bird.velocity;
+
+            if (bird.y + bird.radius > canvas.height) {
+                gameState = 'gameOver';
+            }
+
+            pipes.forEach(pipe => {
+                pipe.x -= pipeSpeed;
+
+                if (pipe.x + pipeWidth < 0) {
+                    pipes.shift();
+                    score++;
+                }
+
+                if (
+                    bird.x + bird.radius > pipe.x &&
+                    bird.x - bird.radius < pipe.x + pipeWidth &&
+                    (bird.y - bird.radius < pipe.top || bird.y + bird.radius > pipe.bottom)
+                ) {
+                    gameState = 'gameOver';
+                }
+            });
+
+            if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - 300) {
+                let pipeY = Math.random() * (canvas.height - pipeGap - 200) + 100;
+                pipes.push({
+                    x: canvas.width,
+                    top: pipeY,
+                    bottom: pipeY + pipeGap
+                });
+            }
+
+            // Aumentar la dificultad gradualmente
+            pipeGap = Math.max(canvas.height * 0.25, canvas.height * 0.35 - score * 2);
+        }
+
+        function drawMenu() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#FFF';
+            ctx.font = `bold ${canvas.width * 0.07}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.fillText('Flappy Bird Mejorado', canvas.width / 2, canvas.height * 0.3);
+            
+            nameInput.style.display = 'block';
+            difficultySelect.style.display = 'block';
+            startButton.style.display = 'block';
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#FFF';
+            ctx.font = `bold ${canvas.width * 0.07}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.fillText(`Game Over, ${playerName}`, canvas.width / 2, canvas.height * 0.3);
+            ctx.font = `${canvas.width * 0.04}px Arial`;
+            ctx.fillText(`Puntuación: ${score}`, canvas.width / 2, canvas.height * 0.4);
+            ctx.fillText(`Tiempo: ${formatTime(elapsedTime)}`, canvas.width / 2, canvas.height * 0.5);
+            ctx.font = `${canvas.width * 0.03}px Arial`;
+            ctx.fillText('Haz clic para volver al menú', canvas.width / 2, canvas.height * 0.6);
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+            drawPipes();
+            drawBird();
+            updateGame();
+            
+            if (gameState === 'playing') {
+                drawScore();
+            } else if (gameState === 'menu') {
+                drawMenu();
+            } else if (gameState === 'gameOver') {
+                drawGameOver();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        canvas.addEventListener('click', () => {
+            if (gameState === 'playing') {
+                bird.velocity = flapStrength;
+            } else if (gameState === 'gameOver') {
+                gameState = 'menu';
+                nameInput.style.display = 'block';
+                difficultySelect.style.display = 'block';
+                startButton.style.display = 'block';
+            }
+        });
+
+        startButton.addEventListener('click', () => {
+            playerName = nameInput.value || 'Jugador';
+            setDifficulty(difficultySelect.value);
+            nameInput.style.display = 'none';
+            difficultySelect.style.display = 'none';
+            startButton.style.display = 'none';
+            initGame();
+            gameState = 'playing';
+        });
+
+        initGame();
+        gameLoop();
+    </script>
+</body>
+</html>
